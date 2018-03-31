@@ -1,0 +1,253 @@
+---
+title: "How familiarity warps representation in face space — Analysis"
+author: "Vassiki Chauhan, Maria Ida Gobbini"
+output: pdf_document
+---
+**Experimental paradigm:**
+
+Fixation cross for either 500 or 700 ms
+Morphed face (10% to 90% in steps of 10%) for 1000 ms
+Original faces for 2AFC displayed until response
+
+**Counterbalancing parameters:**
+
+6 blocks total. 3 blocks from familiar faces,
+3 blocks from unfamiliar faces
+
+108 trials per block, each identity at each morph
+percentage presented 4 times in a block, 12 times
+over the course of the experiment
+
+Consecutive trials from different identities, block
+order counterbalanced across subjects
+
+
+
+Loading Libraries...
+```{r, echo=FALSE}
+require('ggplot2')
+require('lme4')
+require('car')
+require('dplyr')
+library('lmerTest')
+```
+
+
+# Reaction Times
+
+
+```{r}
+
+data <- read.csv('~/Desktop/CatPercep/Data/data.csv')
+
+data$cond <- as.character(data$cond)
+
+# removing outliers from reaction times
+data <- filter(data, rt > 0.15 & rt < 5)
+
+# indexing separate stimulus conditions
+for (x in 1:length(data$id)){
+  data$stim[x] <- paste(data$cond[x],'_',data$block[x],sep="")
+}
+
+# defining labels to flip unfamiliar-unfamiliar blocks
+stim_conditions <- c("f2_unfam","m2_unfam","m1_unfam")
+flip_conditions <- paste(stim_conditions, "_flip", sep="")
+conditions <- data.frame(c(stim_conditions[1],stim_conditions[2],stim_conditions[3]),
+                         c(stim_conditions[1],flip_conditions[2],stim_conditions[3]),
+                         c(stim_conditions[1],flip_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],stim_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],flip_conditions[2],stim_conditions[3]),
+                         c(flip_conditions[1],flip_conditions[2],flip_conditions[3]),
+                         c(stim_conditions[1],stim_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],stim_conditions[2],stim_conditions[3]),
+                         fix.empty.names = FALSE   ) 
+conditions <- as.data.frame(t(conditions))
+colnames(conditions) <- c("stim1","stim2","stim3")
+rep_labels <- c("c1","c2","c3","c4","c5","c6","c7","c8")
+conditions$labels <- rep_labels
+
+# computing all possible combinations of flipped unfamiliar blocks
+for (i in 1:length(stim_conditions)){
+  flip_label <- flip_conditions[i]
+  data_to_flip <- filter(data,stim == stim_conditions[i])
+  for (j in 1:length(data_to_flip$id)){
+    if (data_to_flip$ans[j] == 'perc100'){
+      #data_to_flip$ans[j] = 'perc0'
+      data_to_flip$ans[j] = 'perc0'
+    }else{
+      data_to_flip$ans[j] = 'perc100'
+    }
+    data_to_flip$morph[j] = 100-data_to_flip$morph[j]
+    data_to_flip$famfaceloc[j] <- ifelse(data_to_flip$famfaceloc[j] == 'left','right','left')
+    data_to_flip$stim[j] <- flip_label
+  }
+  # adding flipped trials to main data frame
+  data <- bind_rows(data,data_to_flip)
+}
+
+data$acc <- ifelse((data$morph < 50 & data$famfaceloc != data$resp) | 
+                     (data$morph > 50 & data$famfaceloc == data$resp),1, 0)
+
+# subsetting correct trials
+data_correct <- filter(data,acc == 1)
+```
+
+
+## Testing different models for reaction times
+
+
+```{r}
+# we need to scale the variable morph and treat it as a continuous variable
+data_correct$morph <- as.factor(data_correct$morph)
+data_correct$morph_sc <- as.numeric(as.character(data_correct$morph))
+morph_scaled <- scale(data_correct$morph_sc)
+data_correct$morph_scale <- as.numeric(morph_scaled)
+
+contrasts(data$block) <- contr.sum
+
+model_1_rt <- lmer(log(rt) ~ block*morph_scale +
+               (1 + block | id) +
+               (1 + block | stim),
+             data = data_correct, REML = F)
+
+model_2_rt <- lmer(log(rt)~block*morph_scale + (1+block|id) + 
+                   (1|stim), data = data_correct, REML = F)
+
+anova(model_1_rt,model_2_rt)
+```
+
+
+Random intercept of block with stimulus condition does not improve model fit, 
+and our first model fails to converge.
+
+
+```{r}
+model_3_rt <- lmer(log(rt)~block*morph_scale + (1|id) + 
+                   (1|stim), data = data_correct, REML = F)
+
+anova(model_2_rt,model_3_rt)
+
+```
+  
+  
+ However, the random effect of stimulus condition clearly improves our model. This will be the model
+ we report statistics on! Refitting the model with restricted maximum likelihood and looking at 
+ which of the fixed effects are significant. 
+
+
+## Model Output
+
+
+```{r}
+model_rt <- update(model_2_rt, REML=T)
+Anova(model_rt,type = 3)
+```
+
+
+# Percentage "Identity B" Responses 
+
+
+```{r}
+# please clean your workspace and re enter the data!!
+rm(list=ls())
+
+data <- read.csv('~/Desktop/CatPercep/Data/data.csv')
+
+data$cond <- as.character(data$cond)
+
+# removing outliers again 
+data <- filter(data, rt > 0.15 & rt < 5)
+
+for (x in 1:length(data$id)){
+  data$stim[x] <- paste(data$cond[x],'_',data$block[x],sep="")
+}
+
+stim_conditions <- c("f2_unfam","m2_unfam","m1_unfam")
+flip_conditions <- paste(stim_conditions, "_flip", sep="")
+conditions <- data.frame(c(stim_conditions[1],stim_conditions[2],stim_conditions[3]),
+                         c(stim_conditions[1],flip_conditions[2],stim_conditions[3]),
+                         c(stim_conditions[1],flip_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],stim_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],flip_conditions[2],stim_conditions[3]),
+                         c(flip_conditions[1],flip_conditions[2],flip_conditions[3]),
+                         c(stim_conditions[1],stim_conditions[2],flip_conditions[3]),
+                         c(flip_conditions[1],stim_conditions[2],stim_conditions[3]),
+                         fix.empty.names = FALSE   ) 
+conditions <- as.data.frame(t(conditions))
+colnames(conditions) <- c("stim1","stim2","stim3")
+rep_labels <- c("c1","c2","c3","c4","c5","c6","c7","c8")
+conditions$labels <- rep_labels
+
+# flipping labels
+for (i in 1:length(stim_conditions)){
+  flip_label <- flip_conditions[i]
+  data_to_flip <- filter(data,stim == stim_conditions[i])
+  for (j in 1:length(data_to_flip$id)){
+    if (data_to_flip$ans[j] == 'perc100'){
+      #data_to_flip$ans[j] = 'perc0'
+      data_to_flip$ans[j] = 'perc0'
+    }else{
+      data_to_flip$ans[j] = 'perc100'
+    }
+    data_to_flip$morph[j] = 100-data_to_flip$morph[j]
+    data_to_flip$stim[j] <- flip_label
+  }
+  data <- bind_rows(data,data_to_flip)
+}
+
+```
+
+
+## Testing different models for percentage "Identity B responses"
+
+
+```{r}
+data$morph <- as.factor(data$morph)
+data$block <- as.factor(data$block)
+
+contrasts(data$block) <- contr.sum
+
+data$morph_sc <- as.numeric(as.character(data$morph))
+morph_scaled <- scale(data$morph_sc)
+data$morph_scale <- as.numeric(morph_scaled)
+
+md1 <- glmer(ans ~ block*morph_scale +
+               (1 + block | id) +
+               (1 + block | stim),
+             family=binomial,
+             data = data,
+             control=glmerControl(optimizer="bobyqa")) 
+
+md2 <- glmer(ans ~ block*morph_scale +
+               (1 + block | id) +
+               (1 | stim),
+             family=binomial,
+             data = data,
+             control=glmerControl(optimizer="bobyqa")) 
+
+anova(md1,md2)
+```
+  
+  
+Again, the random intercept due to block does not improve model fit. 
+
+
+```{r}
+md3 <- glmer(ans ~ block*morph_scale +
+               (1 + block | id),
+             family=binomial,
+             data = data,
+             control=glmerControl(optimizer="bobyqa")) 
+
+anova(md2,md3)
+```
+
+
+Clearly, `md2` will be our final statistical model
+
+## Model Output
+```{r}
+Anova(md2, type=3)
+summary(md2)
+```
